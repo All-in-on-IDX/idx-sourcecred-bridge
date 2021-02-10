@@ -17,21 +17,25 @@ const sc = require('sourcecred-publish-test').sourcecred
 const Ceramic = require('@ceramicnetwork/http-client').default
 const { definitions } = require('idx-account-linker/src/docIDs.json')
 const IDX = require('@ceramicstudio/idx').IDX
+require('dotenv').config()
 
-const GITHUB_API_TOKEN = (
-  process.env.GITHUB_API_TOKEN || 'ae744c063339472106c801f91394f0f71d61e17b'
-)
+const GITHUB_API_TOKEN = process.env.GITHUB_API_TOKEN
+
+if(!GITHUB_API_TOKEN) {
+  console.error('Missing GITHUB_API_TOKEN')
+  process.exit(-5)
+}
 
 const NodeAddress = sc.core.address.makeAddressModule({
   name: 'NodeAddress',
   nonce: 'N',
   otherNonces: new Map().set('E', 'EdgeAddress'),
 })
-
-const DiscordMemberPrefix = sc.plugins.discord.declaration.memberNodeType.prefix
-const GithubMemberPrefix = sc.plugins.github.declaration.prefix
-const EthNodePrefix = sc.plugins.ethereum.declaration.nodePrefix
-
+const prefixes = {
+  'https://discord.com': sc.plugins.discord.declaration.memberNodeType.prefix,
+  'https://github.com': sc.plugins.github.declaration.userNodeType.prefix,
+  ethereum: sc.plugins.ethereum.declaration.nodePrefix,
+}
 const createCeramic = async (url = 'https://ceramic-clay.3boxlabs.com') => {
   const ceramic = new Ceramic(url)
   ceramic.didFor = async(addr) => (
@@ -42,7 +46,6 @@ const createCeramic = async (url = 'https://ceramic-clay.3boxlabs.com') => {
       } }
     )).content
   )
-
   return Promise.resolve(ceramic)
 }
 
@@ -55,8 +58,7 @@ const manager = new sc.ledger.manager.LedgerManager({
 })
 
 const addressUtils = sc.plugins.ethereum.utils.address
-
-const isEthAlias = a => NodeAddress.hasPrefix(a.address, EthNodePrefix)
+const isEthAlias = a => NodeAddress.hasPrefix(a.address, prefixes.ethereum)
 
 ;(async () => {
   const ceramic = await createCeramic()
@@ -84,17 +86,20 @@ const isEthAlias = a => NodeAddress.hasPrefix(a.address, EthNodePrefix)
     }
     const links = await idx.get('aka', did)
     if(!links || !links.accounts) {
-      console.info('No Links; Skipping…')
+      console.info(`No Links; ${did}; Skipping…`)
       continue
     }
     for(let link of links.accounts) {
-      if(link.host !== 'github.com') {
-        console.info(`Unknown Link Host: ${link.host}`)
+      const url = `${link.protocol}://${link.host}`
+      const prefix = prefixes[url]
+      if(!prefix) {
+        console.info(prefixes)
+        console.info(`Unknown Link URL: ${url}`)
         continue
       }
       const alias = {
-        description: `github/${link.id}`,
-        address: NodeAddress.append(GithubMemberPrefix, 'user', link.id),
+        description: `${link.host.split('.')[0]}/${link.id}`,
+        address: NodeAddress.append(prefix, 'user', link.id),
       }
 
       try {
